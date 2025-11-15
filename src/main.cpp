@@ -27,6 +27,11 @@ void saveAllOutputStates();
 void saveCustomParameters();
 void loadCustomParameters();
 
+// Helper functions
+int findOutputIndexByPin(int pin);
+void serializeStatusToJson(DynamicJsonDocument& doc);
+bool deserializeJsonRequest(String body, DynamicJsonDocument& doc, IPAddress clientIP, const char* endpoint);
+
 // Global variables
 // Web Server
 ESP8266WebServer* server = nullptr;
@@ -38,6 +43,12 @@ unsigned long lastBroadcast = 0;
 const unsigned long BROADCAST_INTERVAL = 500; // Broadcast every 500ms
 
 #define MAX_CHASING_GROUPS 4
+
+// Constants
+const uint32_t FLASH_PARTITION_SIZE = 1044464; // Program partition size (from platformio build output)
+const uint8_t MAX_OUTPUTS_PER_CHASING_GROUP = 8;
+const uint8_t MAX_NAME_LENGTH = 20;
+const uint16_t MIN_CHASING_INTERVAL_MS = 50;
 
 // Chasing group structure
 struct ChasingGroup {
@@ -114,10 +125,18 @@ void wsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
     }
 }
 
-void broadcastStatus() {
-    if (!ws) return;
-    
-    DynamicJsonDocument doc(2048);
+// Helper function to find output index by GPIO pin
+int findOutputIndexByPin(int pin) {
+    for (int i = 0; i < MAX_OUTPUTS; i++) {
+        if (outputPins[i] == pin) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Helper function to serialize status to JSON (used by both broadcastStatus and /api/status)
+void serializeStatusToJson(DynamicJsonDocument& doc) {
     doc["macAddress"] = macAddress;
     doc["name"] = customDeviceName;
     doc["wifiMode"] = WiFi.getMode() == WIFI_AP ? "AP" : "STA";
@@ -129,11 +148,11 @@ void broadcastStatus() {
     doc["buildDate"] = String(__DATE__) + " " + String(__TIME__);
     doc["flashUsed"] = ESP.getSketchSize();
     doc["flashFree"] = ESP.getFreeSketchSpace();
-    doc["flashPartition"] = 1044464; // Program partition size (from platformio build output)
+    doc["flashPartition"] = FLASH_PARTITION_SIZE;
     
-    JsonArray outputs = doc.createNestedArray("outputs");
+    JsonArray outputs = doc["outputs"].to<JsonArray>();
     for (int i = 0; i < MAX_OUTPUTS; i++) {
-        JsonObject output = outputs.createNestedObject();
+        JsonObject output = outputs.add<JsonObject>();
         output["pin"] = outputPins[i];
         output["active"] = outputStates[i];
         output["brightness"] = map(outputBrightness[i], 0, 255, 0, 100);
@@ -142,20 +161,43 @@ void broadcastStatus() {
         output["chasingGroup"] = outputChasingGroup[i];
     }
     
-    JsonArray groups = doc.createNestedArray("chasingGroups");
+    JsonArray groups = doc["chasingGroups"].to<JsonArray>();
     for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
         if (chasingGroups[i].active) {
-            JsonObject group = groups.createNestedObject();
+            JsonObject group = groups.add<JsonObject>();
             group["groupId"] = chasingGroups[i].groupId;
             group["name"] = chasingGroups[i].name;
             group["interval"] = chasingGroups[i].interval;
             group["outputCount"] = chasingGroups[i].outputCount;
-            JsonArray groupOutputs = group.createNestedArray("outputs");
+            JsonArray groupOutputs = group["outputs"].to<JsonArray>();
             for (int j = 0; j < chasingGroups[i].outputCount; j++) {
                 groupOutputs.add(outputPins[chasingGroups[i].outputIndices[j]]);
             }
         }
     }
+}
+
+// Helper function for JSON deserialization with consistent error handling
+bool deserializeJsonRequest(String body, DynamicJsonDocument& doc, IPAddress clientIP, const char* endpoint) {
+    DeserializationError error = deserializeJson(doc, body);
+    
+    if (error) {
+        Serial.print("[ERROR] JSON deserialization failed for ");
+        Serial.print(endpoint);
+        Serial.print(" from ");
+        Serial.print(clientIP.toString());
+        Serial.print(": ");
+        Serial.println(error.c_str());
+        return false;
+    }
+    return true;
+}
+
+void broadcastStatus() {
+    if (!ws) return;
+    
+    DynamicJsonDocument doc(2048);
+    serializeStatusToJson(doc);
     
     String response;
     serializeJson(doc, response);
@@ -577,8 +619,8 @@ void saveChasingGroups() {
         if (chasingGroups[i].active) {
             eepromData.chasingGroups[i].groupId = chasingGroups[i].groupId;
             eepromData.chasingGroups[i].active = true;
-            strncpy(eepromData.chasingGroups[i].name, chasingGroups[i].name, 20);
-            eepromData.chasingGroups[i].name[20] = '\0';
+            strncpy(eepromData.chasingGroups[i].name, chasingGroups[i].name, MAX_NAME_LENGTH);
+            eepromData.chasingGroups[i].name[MAX_NAME_LENGTH] = '\0';
             eepromData.chasingGroups[i].outputCount = chasingGroups[i].outputCount;
             eepromData.chasingGroups[i].interval = chasingGroups[i].interval;
             for (int j = 0; j < chasingGroups[i].outputCount; j++) {
@@ -611,8 +653,8 @@ void loadChasingGroups() {
         if (eepromData.chasingGroups[i].active && eepromData.chasingGroups[i].outputCount > 0) {
             chasingGroups[i].groupId = eepromData.chasingGroups[i].groupId;
             chasingGroups[i].active = true;
-            strncpy(chasingGroups[i].name, eepromData.chasingGroups[i].name, 20);
-            chasingGroups[i].name[20] = '\0';
+            strncpy(chasingGroups[i].name, eepromData.chasingGroups[i].name, MAX_NAME_LENGTH);
+            chasingGroups[i].name[MAX_NAME_LENGTH] = '\0';
             chasingGroups[i].outputCount = eepromData.chasingGroups[i].outputCount;
             chasingGroups[i].interval = eepromData.chasingGroups[i].interval;
             chasingGroups[i].currentStep = 0;
@@ -674,13 +716,7 @@ void executeOutputCommand(int pin, bool active, int brightnessPercent) {
     unsigned long startTime = millis();
     
     // Find the output index for the given pin
-    int outputIndex = -1;
-    for (int i = 0; i < MAX_OUTPUTS; i++) {
-        if (outputPins[i] == pin) {
-            outputIndex = i;
-            break;
-        }
-    }
+    int outputIndex = findOutputIndexByPin(pin);
     
     if (outputIndex == -1) {
         Serial.println("[ERROR] Invalid GPIO pin: " + String(pin));
@@ -769,8 +805,8 @@ void saveOutputName(int index, String name) {
     }
     
     // Copy name to EEPROM structure (max 20 chars + null)
-    strncpy(eepromData.outputNames[index], name.c_str(), 20);
-    eepromData.outputNames[index][20] = '\0';
+    strncpy(eepromData.outputNames[index], name.c_str(), MAX_NAME_LENGTH);
+    eepromData.outputNames[index][MAX_NAME_LENGTH] = '\0';
     
     // Write back to EEPROM
     EEPROM.put(0, eepromData);
@@ -848,7 +884,7 @@ void loadOutputStates() {
             eepromData.outputNames[i][0] >= 32 && 
             eepromData.outputNames[i][0] <= 126) {
             // Ensure null termination
-            eepromData.outputNames[i][20] = '\0';
+            eepromData.outputNames[i][MAX_NAME_LENGTH] = '\0';
             outputNames[i] = String(eepromData.outputNames[i]);
             namedCount++;
         } else {
@@ -985,7 +1021,7 @@ void updateBlinkingOutputs() {
 }
 
 void createChasingGroup(uint8_t groupId, uint8_t* outputIndices, uint8_t count, unsigned int intervalMs, const char* groupName = nullptr) {
-    if (groupId >= MAX_CHASING_GROUPS || count == 0 || count > 8) {
+    if (groupId >= MAX_CHASING_GROUPS || count == 0 || count > MAX_OUTPUTS_PER_CHASING_GROUP) {
         Serial.println("[ERROR] Invalid chasing group parameters");
         return;
     }
@@ -1019,10 +1055,10 @@ void createChasingGroup(uint8_t groupId, uint8_t* outputIndices, uint8_t count, 
     
     // Set group name (default: "Group X" if not provided)
     if (groupName != nullptr && strlen(groupName) > 0) {
-        strncpy(group->name, groupName, 20);
-        group->name[20] = '\0';
+        strncpy(group->name, groupName, MAX_NAME_LENGTH);
+        group->name[MAX_NAME_LENGTH] = '\0';
     } else {
-        snprintf(group->name, 21, "Group %d", groupId);
+        snprintf(group->name, MAX_NAME_LENGTH + 1, "Group %d", groupId);
     }
     
     group->outputCount = count;
@@ -1472,44 +1508,8 @@ void initializeWebServer() {
         Serial.println(clientIP.toString());
         
         DynamicJsonDocument doc(2048);
-        doc["macAddress"] = macAddress;
-        doc["name"] = customDeviceName;
-        doc["wifiMode"] = WiFi.getMode() == WIFI_AP ? "AP" : "STA";
-        doc["ip"] = WiFi.getMode() == WIFI_AP ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-        doc["ssid"] = WiFi.getMode() == WIFI_AP ? String(AP_SSID) : WiFi.SSID();
-        doc["apClients"] = WiFi.softAPgetStationNum();
-        doc["freeHeap"] = ESP.getFreeHeap();
-        doc["uptime"] = millis();
-        doc["flashTotal"] = ESP.getFlashChipSize();
-        doc["flashUsed"] = ESP.getSketchSize();
-        doc["flashFree"] = ESP.getFreeSketchSpace();
-        
-        JsonArray outputs = doc.createNestedArray("outputs");
-        for (int i = 0; i < MAX_OUTPUTS; i++) {
-            JsonObject output = outputs.createNestedObject();
-            output["pin"] = outputPins[i];
-            output["active"] = outputStates[i];
-            output["brightness"] = map(outputBrightness[i], 0, 255, 0, 100);
-            output["name"] = outputNames[i];
-            output["interval"] = outputIntervals[i];
-            output["chasingGroup"] = outputChasingGroup[i];
-        }
-        
-        // Add chasing groups info
-        JsonArray groups = doc.createNestedArray("chasingGroups");
-        for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
-            if (chasingGroups[i].active) {
-                JsonObject group = groups.createNestedObject();
-                group["groupId"] = chasingGroups[i].groupId;
-                group["name"] = chasingGroups[i].name;
-                group["interval"] = chasingGroups[i].interval;
-                group["outputCount"] = chasingGroups[i].outputCount;
-                JsonArray groupOutputs = group.createNestedArray("outputs");
-                for (int j = 0; j < chasingGroups[i].outputCount; j++) {
-                    groupOutputs.add(outputPins[chasingGroups[i].outputIndices[j]]);
-                }
-            }
-        }
+        serializeStatusToJson(doc);
+        doc["flashTotal"] = ESP.getFlashChipSize(); // Additional field for API
         
         String response;
         serializeJson(doc, response);
@@ -1536,11 +1536,7 @@ void initializeWebServer() {
         Serial.println(" bytes)");
         
         DynamicJsonDocument doc(512);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
-            Serial.print("[ERROR] JSON deserialization failed: ");
-            Serial.println(error.c_str());
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/name")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1554,14 +1550,7 @@ void initializeWebServer() {
         Serial.print(name);
         Serial.println("'");
         
-        // Find output index by pin
-        int outputIndex = -1;
-        for (int i = 0; i < MAX_OUTPUTS; i++) {
-            if (outputPins[i] == pin) {
-                outputIndex = i;
-                break;
-            }
-        }
+        int outputIndex = findOutputIndexByPin(pin);
         
         if (outputIndex >= 0) {
             saveOutputName(outputIndex, name);
@@ -1590,11 +1579,7 @@ void initializeWebServer() {
         Serial.println(" bytes)");
         
         DynamicJsonDocument doc(512);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
-            Serial.print("[ERROR] JSON deserialization failed: ");
-            Serial.println(error.c_str());
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/interval")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1608,14 +1593,7 @@ void initializeWebServer() {
         Serial.print(interval);
         Serial.println("ms");
         
-        // Find output index by pin
-        int outputIndex = -1;
-        for (int i = 0; i < MAX_OUTPUTS; i++) {
-            if (outputPins[i] == pin) {
-                outputIndex = i;
-                break;
-            }
-        }
+        int outputIndex = findOutputIndexByPin(pin);
         
         if (outputIndex >= 0) {
             setOutputInterval(outputIndex, interval);
@@ -1644,11 +1622,7 @@ void initializeWebServer() {
         Serial.println(" bytes)");
         
         DynamicJsonDocument doc(1024);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
-            Serial.print("[ERROR] JSON deserialization failed: ");
-            Serial.println(error.c_str());
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/control")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1687,11 +1661,7 @@ void initializeWebServer() {
         Serial.println(" bytes)");
         
         DynamicJsonDocument doc(1024);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
-            Serial.print("[ERROR] JSON deserialization failed: ");
-            Serial.println(error.c_str());
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/chasing/create")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1699,24 +1669,21 @@ void initializeWebServer() {
         uint8_t groupId = doc["groupId"];
         unsigned int interval = doc["interval"];
         JsonArray outputs = doc["outputs"];
-        const char* groupName = doc.containsKey("name") ? doc["name"].as<const char*>() : nullptr;
+        const char* groupName = doc["name"].is<const char*>() ? doc["name"].as<const char*>() : nullptr;
         
-        if (outputs.size() == 0 || outputs.size() > 8) {
+        if (outputs.size() == 0 || outputs.size() > MAX_OUTPUTS_PER_CHASING_GROUP) {
             server->send(400, "application/json", "{\"error\":\"Invalid output count (1-8)\"}");
             return;
         }
         
         // Convert output pins to indices
-        uint8_t outputIndices[8];
+        uint8_t outputIndices[MAX_OUTPUTS_PER_CHASING_GROUP];
         uint8_t count = 0;
         for (JsonVariant v : outputs) {
             int pin = v.as<int>();
-            // Find output index by pin
-            for (int i = 0; i < MAX_OUTPUTS; i++) {
-                if (outputPins[i] == pin) {
-                    outputIndices[count++] = i;
-                    break;
-                }
+            int outputIndex = findOutputIndexByPin(pin);
+            if (outputIndex >= 0) {
+                outputIndices[count++] = outputIndex;
             }
         }
         
@@ -1743,9 +1710,7 @@ void initializeWebServer() {
         Serial.println(clientIP.toString());
         
         DynamicJsonDocument doc(256);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/chasing/delete")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1764,9 +1729,7 @@ void initializeWebServer() {
         Serial.println(clientIP.toString());
         
         DynamicJsonDocument doc(256);
-        DeserializationError error = deserializeJson(doc, body);
-        
-        if (error) {
+        if (!deserializeJsonRequest(body, doc, clientIP, "/api/chasing/name")) {
             server->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
             return;
         }
@@ -1775,20 +1738,20 @@ void initializeWebServer() {
         const char* newName = doc["name"];
         
         // If name is empty or null, use default "Group X"
-        char finalName[21];
+        char finalName[MAX_NAME_LENGTH + 1];
         if (newName == nullptr || strlen(newName) == 0) {
             snprintf(finalName, sizeof(finalName), "Group %d", groupId);
         } else {
-            strncpy(finalName, newName, 20);
-            finalName[20] = '\0';
+            strncpy(finalName, newName, MAX_NAME_LENGTH);
+            finalName[MAX_NAME_LENGTH] = '\0';
         }
         
         // Find and update group
         bool found = false;
         for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
             if (chasingGroups[i].active && chasingGroups[i].groupId == groupId) {
-                strncpy(chasingGroups[i].name, finalName, 20);
-                chasingGroups[i].name[20] = '\0';
+                strncpy(chasingGroups[i].name, finalName, MAX_NAME_LENGTH);
+                chasingGroups[i].name[MAX_NAME_LENGTH] = '\0';
                 saveChasingGroups();
                 found = true;
                 Serial.print("[CHASING] Updated group ");
