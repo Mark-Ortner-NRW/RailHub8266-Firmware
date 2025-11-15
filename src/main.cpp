@@ -17,7 +17,7 @@ void executeOutputCommand(int pin, bool active, int brightnessPercent);
 void updateBlinkingOutputs();
 void updateChasingLightGroups();
 void setOutputInterval(int index, unsigned int intervalMs);
-void createChasingGroup(uint8_t groupId, uint8_t* outputIndices, uint8_t count, unsigned int intervalMs);
+void createChasingGroup(uint8_t groupId, const uint8_t* outputIndices, uint8_t count, unsigned int intervalMs, const char* groupName = nullptr);
 void deleteChasingGroup(uint8_t groupId);
 void saveChasingGroups();
 void loadChasingGroups();
@@ -1020,86 +1020,137 @@ void updateBlinkingOutputs() {
     }
 }
 
-void createChasingGroup(uint8_t groupId, uint8_t* outputIndices, uint8_t count, unsigned int intervalMs, const char* groupName = nullptr) {
-    if (groupId >= MAX_CHASING_GROUPS || count == 0 || count > MAX_OUTPUTS_PER_CHASING_GROUP) {
-        Serial.println("[ERROR] Invalid chasing group parameters");
-        return;
-    }
-    
-    // Find or create group slot
-    int groupSlot = -1;
-    for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
-        if (chasingGroups[i].groupId == groupId || !chasingGroups[i].active) {
-            groupSlot = i;
-            break;
-        }
-    }
-    
-    if (groupSlot == -1) {
-        Serial.println("[ERROR] No available chasing group slots");
-        return;
-    }
-    
-    // Clear old group memberships for these outputs
-    for (int i = 0; i < count; i++) {
-        uint8_t idx = outputIndices[i];
-        if (idx < MAX_OUTPUTS) {
-            outputChasingGroup[idx] = -1;
-        }
-    }
-    
-    // Setup new group
-    ChasingGroup* group = &chasingGroups[groupSlot];
-    group->groupId = groupId;
-    group->active = true;
-    
-    // Set group name (default: "Group X" if not provided)
+// Helper function to set group name safely
+static void setGroupName(ChasingGroup* group, uint8_t groupId, const char* groupName) {
     if (groupName != nullptr && strlen(groupName) > 0) {
         strncpy(group->name, groupName, MAX_NAME_LENGTH);
         group->name[MAX_NAME_LENGTH] = '\0';
     } else {
         snprintf(group->name, MAX_NAME_LENGTH + 1, "Group %d", groupId);
     }
+}
+
+// Helper function to find available group slot
+static int findGroupSlot(uint8_t groupId) {
+    // First, try to find existing group with same ID
+    for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
+        if (chasingGroups[i].active && chasingGroups[i].groupId == groupId) {
+            return i;
+        }
+    }
     
+    // If not found, find first inactive slot
+    for (int i = 0; i < MAX_CHASING_GROUPS; i++) {
+        if (!chasingGroups[i].active) {
+            return i;
+        }
+    }
+    
+    return -1; // No slot available
+}
+
+void createChasingGroup(uint8_t groupId, const uint8_t* outputIndices, uint8_t count, unsigned int intervalMs, const char* groupName) {
+    // Validate groupId (0 is invalid, max 255)
+    if (groupId == 0 || groupId > 255) {
+        Serial.print("[ERROR] Invalid groupId: ");
+        Serial.print(groupId);
+        Serial.println(" (must be 1-255)");
+        return;
+    }
+    
+    // Validate output count
+    if (count == 0) {
+        Serial.println("[ERROR] Cannot create group with 0 outputs");
+        return;
+    }
+    if (count > MAX_OUTPUTS_PER_CHASING_GROUP) {
+        Serial.print("[ERROR] Too many outputs: ");
+        Serial.print(count);
+        Serial.print(" (maximum: ");
+        Serial.print(MAX_OUTPUTS_PER_CHASING_GROUP);
+        Serial.println(")");
+        return;
+    }
+    
+    // Validate all output indices before proceeding
+    for (uint8_t i = 0; i < count; i++) {
+        if (outputIndices[i] >= MAX_OUTPUTS) {
+            Serial.print("[ERROR] Invalid output index at position ");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.print(outputIndices[i]);
+            Serial.print(" (maximum: ");
+            Serial.print(MAX_OUTPUTS - 1);
+            Serial.println(")");
+            return;
+        }
+    }
+    
+    // Validate interval
+    if (intervalMs < MIN_CHASING_INTERVAL_MS) {
+        Serial.print("[ERROR] Interval too small: ");
+        Serial.print(intervalMs);
+        Serial.print("ms (minimum: ");
+        Serial.print(MIN_CHASING_INTERVAL_MS);
+        Serial.println("ms)");
+        return;
+    }
+    
+    // Find available slot
+    const int groupSlot = findGroupSlot(groupId);
+    if (groupSlot < 0 || groupSlot >= MAX_CHASING_GROUPS) {
+        Serial.println("[ERROR] No available chasing group slots");
+        return;
+    }
+    
+    ChasingGroup* const group = &chasingGroups[groupSlot];
+    
+    // Clear old group memberships for these outputs (before setting new ones)
+    for (uint8_t i = 0; i < count; i++) {
+        const uint8_t idx = outputIndices[i];
+        outputChasingGroup[idx] = -1;
+    }
+    
+    // Setup group structure
+    group->groupId = groupId;
+    group->active = true;
+    setGroupName(group, groupId, groupName);
     group->outputCount = count;
     group->interval = intervalMs;
     group->currentStep = 0;
     group->lastStepTime = millis();
     
-    for (int i = 0; i < count; i++) {
-        group->outputIndices[i] = outputIndices[i];
-        if (outputIndices[i] < MAX_OUTPUTS) {
-            outputChasingGroup[outputIndices[i]] = groupId;
+    // Copy output indices and set group membership in single loop
+    for (uint8_t i = 0; i < count; i++) {
+        const uint8_t idx = outputIndices[i];
+        group->outputIndices[i] = idx;
+        outputChasingGroup[idx] = groupId;
+        outputStates[idx] = true; // Mark outputs as active
+    }
+    
+    // Initialize outputs: first on, rest off (combined loop)
+    for (uint8_t i = 0; i < count; i++) {
+        const uint8_t idx = outputIndices[i];
+        if (i == 0) {
+            analogWrite(outputPins[idx], outputBrightness[idx]);
+        } else {
+            analogWrite(outputPins[idx], 0);
         }
     }
     
-    // Turn on all outputs in group
-    for (int i = 0; i < count; i++) {
-        uint8_t idx = outputIndices[i];
-        if (idx < MAX_OUTPUTS) {
-            outputStates[idx] = true;
-        }
-    }
-    
-    // Initialize first output on, rest off
-    for (int i = 0; i < count; i++) {
-        uint8_t idx = outputIndices[i];
-        if (idx < MAX_OUTPUTS) {
-            if (i == 0) {
-                analogWrite(outputPins[idx], outputBrightness[idx]);
-            } else {
-                analogWrite(outputPins[idx], 0);
-            }
-        }
-    }
-    
+    // Persist to EEPROM
     saveChasingGroups();
     
+    // Log success with details
     Serial.print("[CHASING] Group ");
     Serial.print(groupId);
-    Serial.print(" created with ");
+    Serial.print(" '");
+    Serial.print(group->name);
+    Serial.print("' created: slot=");
+    Serial.print(groupSlot);
+    Serial.print(", outputs=");
     Serial.print(count);
-    Serial.print(" outputs, interval: ");
+    Serial.print(", interval=");
     Serial.print(intervalMs);
     Serial.println("ms");
 }
@@ -1376,12 +1427,12 @@ void initializeWebServer() {
         "div.className=cls;"
         "let groupTag='';"
         "if(out.chasingGroup>=0){const grp=d.chasingGroups.find(g=>g.groupId===out.chasingGroup);groupTag=grp?' ['+grp.name+']':' [G'+out.chasingGroup+']';}"
-        "div.innerHTML=`<div class='output-header'><span class='output-name' onclick='editOName(${out.pin},\"${out.name}\")'>${out.name || 'GPIO '+out.pin}${groupTag}</span>"
+        "div.innerHTML=`<div class='output-header'><div class='output-name' onclick='editOName(${out.pin},\"${out.name}\")'>${out.name || 'GPIO '+out.pin}${groupTag}</div>"
         "<div class='toggle ${out.active?'on':''}' onclick='tog(${out.pin})'></div></div>"
-        "<div class='output-controls'><div class='brightness'><input type='range' min='0' max='100' value='${out.brightness}' "
+        "<div class='output-controls'><div class='brightness'><span class='brightness-label' data-i18n='brightness'>Brightness</span><input type='range' min='0' max='100' value='${out.brightness}' "
         "oninput='this.nextElementSibling.textContent=this.value+\"%\"' onchange='setBright(${out.pin},this.value)'>"
         "<span>${out.brightness}%</span></div>"
-        "<div class='interval'><span>${i18n[currentLang].interval_label}:</span><input type='text' value='${out.interval}' "
+        "<div class='interval'><span class='interval-label' data-i18n='interval_label'>Interval:</span><input type='text' value='${out.interval}' "
         "onchange='setInt(${out.pin},this.value)' ${out.chasingGroup>=0?'disabled':''}><span>ms</span></div></div>`;"
         "o.appendChild(div);});"
         "if(focusedPin){const inputs=document.querySelectorAll('.interval input[type=text]');"
@@ -1474,13 +1525,15 @@ void initializeWebServer() {
         server->sendContent(F("let isProcessing=false;async function allOn(){const btn=document.getElementById('btnAllOn');if(isProcessing)return;isProcessing=true;"
         "bulkState='on';btn.classList.add('processing');btn.disabled=true;try{const r=await fetch('/api/status');const d=await r.json();"
         "for(const o of d.outputs){await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:JSON.stringify({pin:o.pin,active:true,brightness:100})});}}catch(e){console.error(e);}finally{await new Promise(r=>setTimeout(r,2000));"
+        "body:JSON.stringify({pin:o.pin,active:true,brightness:100})});}"
+        "await new Promise(r=>setTimeout(r,300));load();}catch(e){console.error(e);load();}finally{"
         "btn.classList.remove('processing');btn.disabled=false;isProcessing=false;}}"));
         
         server->sendContent(F("async function allOff(){const btn=document.getElementById('btnAllOff');if(isProcessing)return;isProcessing=true;"
         "bulkState='off';btn.classList.add('processing');btn.disabled=true;try{const r=await fetch('/api/status');const d=await r.json();"
         "for(const o of d.outputs){await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:JSON.stringify({pin:o.pin,active:false,brightness:0})});}}catch(e){console.error(e);}finally{await new Promise(r=>setTimeout(r,2000));"
+        "body:JSON.stringify({pin:o.pin,active:false,brightness:0})});}"
+        "await new Promise(r=>setTimeout(r,300));load();}catch(e){console.error(e);load();}finally{"
         "btn.classList.remove('processing');btn.disabled=false;isProcessing=false;}}"));
         
         server->sendContent(F("async function setMasterBrightness(val){try{const r=await fetch('/api/status');const d=await r.json();"
@@ -1651,9 +1704,10 @@ void initializeWebServer() {
     
     // API endpoint for creating chasing group
     server->on("/api/chasing/create", HTTP_POST, []() {
-        unsigned long startTime = millis();
-        IPAddress clientIP = server->client().remoteIP();
-        String body = server->arg("plain");
+        const unsigned long startTime = millis();
+        const IPAddress clientIP = server->client().remoteIP();
+        const String body = server->arg("plain");
+        
         Serial.print("[WEB] POST /api/chasing/create from ");
         Serial.print(clientIP.toString());
         Serial.print(" (");
@@ -1666,36 +1720,120 @@ void initializeWebServer() {
             return;
         }
         
-        uint8_t groupId = doc["groupId"];
-        unsigned int interval = doc["interval"];
-        JsonArray outputs = doc["outputs"];
+        // Validate and extract groupId
+        if (!doc["groupId"].is<uint8_t>()) {
+            Serial.println("[ERROR] Missing or invalid groupId in request");
+            server->send(400, "application/json", "{\"error\":\"Missing or invalid groupId\"}");
+            return;
+        }
+        const uint8_t groupId = doc["groupId"].as<uint8_t>();
+        if (groupId == 0 || groupId > 255) {
+            Serial.print("[ERROR] GroupId out of range: ");
+            Serial.println(groupId);
+            server->send(400, "application/json", "{\"error\":\"GroupId must be 1-255\"}");
+            return;
+        }
+        
+        // Validate and extract interval
+        if (!doc["interval"].is<unsigned int>()) {
+            Serial.println("[ERROR] Missing or invalid interval in request");
+            server->send(400, "application/json", "{\"error\":\"Missing or invalid interval\"}");
+            return;
+        }
+        const unsigned int interval = doc["interval"].as<unsigned int>();
+        if (interval < MIN_CHASING_INTERVAL_MS) {
+            Serial.print("[ERROR] Interval too small: ");
+            Serial.print(interval);
+            Serial.print("ms (minimum: ");
+            Serial.print(MIN_CHASING_INTERVAL_MS);
+            Serial.println("ms)");
+            server->send(400, "application/json", "{\"error\":\"Interval must be at least 50ms\"}");
+            return;
+        }
+        
+        // Validate and extract outputs array
+        if (!doc["outputs"].is<JsonArray>()) {
+            Serial.println("[ERROR] Missing or invalid outputs array in request");
+            server->send(400, "application/json", "{\"error\":\"Missing or invalid outputs array\"}");
+            return;
+        }
+        const JsonArray outputs = doc["outputs"];
+        const size_t outputCount = outputs.size();
+        
+        if (outputCount == 0) {
+            Serial.println("[ERROR] Empty outputs array");
+            server->send(400, "application/json", "{\"error\":\"At least one output required\"}");
+            return;
+        }
+        if (outputCount > MAX_OUTPUTS_PER_CHASING_GROUP) {
+            Serial.print("[ERROR] Too many outputs: ");
+            Serial.print(outputCount);
+            Serial.print(" (maximum: ");
+            Serial.print(MAX_OUTPUTS_PER_CHASING_GROUP);
+            Serial.println(")");
+            server->send(400, "application/json", "{\"error\":\"Too many outputs (max 8)\"}");
+            return;
+        }
+        
+        // Extract optional group name
         const char* groupName = doc["name"].is<const char*>() ? doc["name"].as<const char*>() : nullptr;
         
-        if (outputs.size() == 0 || outputs.size() > MAX_OUTPUTS_PER_CHASING_GROUP) {
-            server->send(400, "application/json", "{\"error\":\"Invalid output count (1-8)\"}");
-            return;
-        }
-        
-        // Convert output pins to indices
+        // Convert output pins to indices with validation
         uint8_t outputIndices[MAX_OUTPUTS_PER_CHASING_GROUP];
-        uint8_t count = 0;
-        for (JsonVariant v : outputs) {
-            int pin = v.as<int>();
-            int outputIndex = findOutputIndexByPin(pin);
-            if (outputIndex >= 0) {
-                outputIndices[count++] = outputIndex;
+        uint8_t validCount = 0;
+        
+        for (size_t i = 0; i < outputCount; i++) {
+            if (!outputs[i].is<int>()) {
+                Serial.print("[ERROR] Invalid output type at index ");
+                Serial.println(i);
+                server->send(400, "application/json", "{\"error\":\"Invalid output format\"}");
+                return;
             }
+            
+            const int pin = outputs[i].as<int>();
+            const int outputIndex = findOutputIndexByPin(pin);
+            
+            if (outputIndex < 0 || outputIndex >= MAX_OUTPUTS) {
+                Serial.print("[ERROR] Invalid GPIO pin: ");
+                Serial.println(pin);
+                server->send(400, "application/json", "{\"error\":\"Invalid GPIO pin\"}");
+                return;
+            }
+            
+            // Check for duplicate pins
+            for (uint8_t j = 0; j < validCount; j++) {
+                if (outputIndices[j] == static_cast<uint8_t>(outputIndex)) {
+                    Serial.print("[ERROR] Duplicate GPIO pin: ");
+                    Serial.println(pin);
+                    server->send(400, "application/json", "{\"error\":\"Duplicate GPIO pin\"}");
+                    return;
+                }
+            }
+            
+            outputIndices[validCount++] = static_cast<uint8_t>(outputIndex);
         }
         
-        if (count != outputs.size()) {
-            server->send(400, "application/json", "{\"error\":\"Invalid GPIO pin(s)\"}");
+        // Final validation: ensure all outputs were converted
+        if (validCount != outputCount) {
+            Serial.print("[ERROR] Failed to convert all outputs: ");
+            Serial.print(validCount);
+            Serial.print("/");
+            Serial.println(outputCount);
+            server->send(400, "application/json", "{\"error\":\"Failed to process all outputs\"}");
             return;
         }
         
-        createChasingGroup(groupId, outputIndices, count, interval, groupName);
+        // Create the chasing group
+        createChasingGroup(groupId, outputIndices, validCount, interval, groupName);
         
-        unsigned long duration = millis() - startTime;
-        Serial.print("[WEB] Chasing group created (");
+        const unsigned long duration = millis() - startTime;
+        Serial.print("[WEB] Chasing group created successfully: ID=");
+        Serial.print(groupId);
+        Serial.print(", outputs=");
+        Serial.print(validCount);
+        Serial.print(", interval=");
+        Serial.print(interval);
+        Serial.print("ms (");
         Serial.print(duration);
         Serial.println("ms)");
         
