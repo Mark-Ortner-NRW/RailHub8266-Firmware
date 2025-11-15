@@ -1136,8 +1136,9 @@ void initializeWebServer() {
         server->send(200, "text/html", "");
         
         // Header chunk
-        server->sendContent(F("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
-        "<title>RailHub8266</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#1a1a1a;color:#e0e0e0;padding:15px;max-width:1200px;margin:0 auto}"
+        server->sendContent(F("<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"));
+        server->sendContent(F("<link rel='icon' href='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚂</text></svg>'>"));
+        server->sendContent(F("<title>RailHub8266</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#1a1a1a;color:#e0e0e0;padding:15px;max-width:1200px;margin:0 auto}"
         ".card{background:#2a2a2a;border:1px solid #3a3a3a;padding:15px;margin-bottom:15px;border-radius:8px}h1{font-size:1.5rem;margin-bottom:10px}h2{font-size:1.2rem;margin-bottom:10px}"
         ".status{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px}.stat{background:#333;padding:12px;text-align:center;border-radius:6px}"
         ".value{font-size:1.5rem;color:#6c9bcf}.label{font-size:0.8rem;color:#999;margin-top:5px}"
@@ -1203,64 +1204,86 @@ void initializeWebServer() {
         
         // Modal dialog for name editing
         server->sendContent(F("<div id='nameModal' class='modal'><div class='modal-content'>"
-        "<div class='modal-header' id='modalTitle'>Edit Name</div>"
-        "<input type='text' id='modalInput' class='modal-input' maxlength='20' placeholder='Enter name...'>"
+        "<div class='modal-header' id='modalTitle' data-i18n='edit_name'>Edit Name</div>"
+        "<input type='text' id='modalInput' class='modal-input' maxlength='20' data-i18n-placeholder='enter_name' placeholder='Enter name...'>"
         "<div class='modal-buttons'>"
-        "<button class='cancel' onclick='closeModal()'>Cancel</button>"
-        "<button onclick='saveModalName()'>Save</button>"
+        "<button class='cancel' onclick='closeModal()' data-i18n='btn_cancel'>Cancel</button>"
+        "<button onclick='saveModalName()' data-i18n='btn_save'>Save</button>"
         "</div></div></div>"));
         
         // Confirmation modal
         server->sendContent(F("<div id='confirmModal' class='modal'><div class='modal-content'>"
-        "<div class='modal-header' id='confirmTitle'>Confirm</div>"
+        "<div class='modal-header' id='confirmTitle' data-i18n='confirm'>Confirm</div>"
         "<div id='confirmMessage' style='margin-bottom:20px;color:#ccc'></div>"
         "<div class='modal-buttons'>"
-        "<button class='cancel' onclick='closeConfirm()'>Cancel</button>"
-        "<button class='delete' onclick='confirmYes()'>Delete</button>"
+        "<button class='cancel' onclick='closeConfirm()' data-i18n='btn_cancel'>Cancel</button>"
+        "<button class='delete' onclick='confirmYes()' data-i18n='btn_delete'>Delete</button>"
         "</div></div></div>"));
         
         // Alert modal
         server->sendContent(F("<div id='alertModal' class='modal'><div class='modal-content'>"
-        "<div class='modal-header' id='alertTitle'>Alert</div>"
+        "<div class='modal-header' id='alertTitle' data-i18n='alert'>Alert</div>"
         "<div id='alertMessage' style='margin-bottom:20px;color:#ccc'></div>"
         "<div class='modal-buttons'>"
-        "<button onclick='closeAlert()'>OK</button>"
+        "<button onclick='closeAlert()' data-i18n='btn_ok'>OK</button>"
         "</div></div></div>"));
         
-        // Body start
-        server->sendContent(F("<div class='card'><h1>🚂 RailHub8266</h1><p class='info'>"));
+        // Language selector and body start
+        server->sendContent(F("<div class='card'>"
+        "<div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px'>"
+        "<div><h1>🚂 RailHub8266</h1><p class='info'>"));
         server->sendContent(String(customDeviceName));
-        server->sendContent(F("</p></div><div class='card'><div class='tabs'>"
-        "<button class='tab active' onclick='showTab(0)'>Status</button>"
-        "<button class='tab' onclick='showTab(1)'>Settings</button>"
-        "</div><div class='tab-content active' id='tab0'><h2>Status</h2><div class='status'>"
-        "<div class='stat'><div class='value' id='uptime'>-</div><div class='label'>Uptime</div></div>"
-        "<div class='stat'><div class='value' id='buildDate'>-</div><div class='label'>Build Date</div></div>"
-        "</div><div style='margin-top:15px'><div class='label'>RAM (80 KB)</div>"
+        server->sendContent(F("</p></div>"
+        "<div style='display:flex;align-items:center;gap:8px'>"
+        "<label style='color:#999;font-size:0.9rem'>🌐</label>"
+        "<select id='langSelect' onchange='changeLang(this.value)' style='padding:8px 12px;background:#333;border:1px solid #666;color:#fff;border-radius:4px;cursor:pointer;font-size:0.95rem'>"
+        "<option value='en'>English</option>"
+        "<option value='de'>Deutsch</option>"
+        "<option value='fr'>Français</option>"
+        "<option value='it'>Italiano</option>"
+        "<option value='zh'>中文</option>"
+        "<option value='hi'>हिन्दी</option>"
+        "</select></div></div></div>"
+        "<div class='card'><div class='tabs'>"
+        "<button class='tab active' onclick='showTab(0)' data-i18n='tab_status'>Status</button>"
+        "<button class='tab' onclick='showTab(1)' data-i18n='tab_settings'>Settings</button>"
+        "</div><div class='tab-content active' id='tab0'><h2 data-i18n='tab_status'>Status</h2><div class='status'>"
+        "<div class='stat'><div class='value' id='uptime'>-</div><div class='label' data-i18n='uptime'>Uptime</div></div>"
+        "<div class='stat'><div class='value' id='buildDate'>-</div><div class='label' data-i18n='build_date'>Build Date</div></div>"
+        "</div><div style='margin-top:15px'><div class='label' data-i18n='ram'>RAM (80 KB)</div>"
         "<div class='storage-bar'><div class='storage-fill' id='ramFill' style='width:0%'></div>"
         "<div class='storage-text' id='ramText'>-</div></div></div>"
-        "<div style='margin-top:15px'><div class='label'>Program Flash (1 MB)</div>"
+        "<div style='margin-top:15px'><div class='label' data-i18n='flash'>Program Flash (1 MB)</div>"
         "<div class='storage-bar'><div class='storage-fill' id='storageFill' style='width:0%'></div>"
         "<div class='storage-text' id='storageText'>-</div></div></div>"
-        "<div style='margin-top:20px'><h2>Controls</h2>"
-        "<div class='control-buttons'><button id='btnAllOn' onclick='allOn()'>All ON</button><button id='btnAllOff' onclick='allOff()'>All OFF</button></div>"
-        "<div class='brightness' style='margin-top:15px'><label style='display:block;margin-bottom:5px;color:#999;font-size:0.9rem'>Master Brightness:</label>"
+        "<div style='margin-top:20px'><h2 data-i18n='controls'>Controls</h2>"
+        "<div class='control-buttons'><button id='btnAllOn' onclick='allOn()' data-i18n='btn_all_on'>All ON</button><button id='btnAllOff' onclick='allOff()' data-i18n='btn_all_off'>All OFF</button></div>"
+        "<div class='brightness' style='margin-top:15px'><label style='display:block;margin-bottom:5px;color:#999;font-size:0.9rem' data-i18n='master_brightness'>Master Brightness:</label>"
         "<input type='range' min='0' max='100' value='100' id='masterBrightness' oninput='this.nextElementSibling.textContent=this.value+\"%\"' onchange='setMasterBrightness(this.value)'>"
         "<span style='color:#6c9bcf;font-weight:bold'>100%</span></div>"
-        "</div></div><div class='tab-content' id='tab1'><h2>Chasing Light Groups</h2>"
+        "</div></div><div class='tab-content' id='tab1'><h2 data-i18n='chasing_groups'>Chasing Light Groups</h2>"
         "<div style='background:#333;padding:15px;border-radius:6px;margin-bottom:15px'>"
-        "<div class='form-group'><label>Group ID:</label>"
+        "<div class='form-group'><label data-i18n='group_id'>Group ID:</label>"
         "<input type='number' id='newGroupId' min='1' max='255' value='1'></div>"
-        "<div class='form-group'><label>Interval (ms):</label>"
+        "<div class='form-group'><label data-i18n='interval_ms'>Interval (ms):</label>"
         "<input type='text' id='newGroupInterval' value='500'></div>"
-        "<div class='form-group'><label>Select Outputs (min. 2):</label>"
+        "<div class='form-group'><label data-i18n='select_outputs'>Select Outputs (min. 2):</label>"
         "<div id='outputSelector' class='checkbox-grid'></div></div>"
-        "<button onclick='createGroup()'>Create Group</button>"
+        "<button onclick='createGroup()' data-i18n='btn_create_group'>Create Group</button>"
         "</div><div id='chasingGroups'></div>"
-        "<h2 style='margin-top:20px'>Outputs</h2><div class='outputs' id='outputs'></div></div></div>"));
+        "<h2 style='margin-top:20px' data-i18n='outputs'>Outputs</h2><div class='outputs' id='outputs'></div></div></div>"));
         
-        // JavaScript chunk
-        server->sendContent(F("<script>function showTab(n){localStorage.setItem('activeTab',n);document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',i===n));"
+        // JavaScript chunk with i18n
+        server->sendContent(F("<script>"
+        "const i18n={en:{tab_status:'Status',tab_settings:'Settings',uptime:'Uptime',build_date:'Build Date',ram:'RAM (80 KB)',flash:'Program Flash (1 MB)',controls:'Controls',btn_all_on:'All ON',btn_all_off:'All OFF',master_brightness:'Master Brightness:',chasing_groups:'Chasing Light Groups',group_id:'Group ID:',interval_ms:'Interval (ms):',select_outputs:'Select Outputs (min. 2):',btn_create_group:'Create Group',outputs:'Outputs',edit_name:'Edit Name',enter_name:'Enter name...',btn_cancel:'Cancel',btn_save:'Save',confirm:'Confirm',btn_delete:'Delete',alert:'Alert',btn_ok:'OK',delete_confirm:'Are you sure you want to delete this chasing group?',validation_error:'Validation Error',min_2_outputs:'Please select at least 2 outputs',group_id_range:'Group ID must be 1-255',interval_min:'Interval must be at least 50ms',error:'Error',outputs_label:'Outputs:',interval_label:'Interval:',no_groups:'No active groups'},"
+        "de:{tab_status:'Status',tab_settings:'Einstellungen',uptime:'Betriebszeit',build_date:'Build-Datum',ram:'RAM (80 KB)',flash:'Programm-Flash (1 MB)',controls:'Steuerung',btn_all_on:'Alle AN',btn_all_off:'Alle AUS',master_brightness:'Master-Helligkeit:',chasing_groups:'Lauflicht-Gruppen',group_id:'Gruppen-ID:',interval_ms:'Intervall (ms):',select_outputs:'Ausgänge wählen (mind. 2):',btn_create_group:'Gruppe erstellen',outputs:'Ausgänge',edit_name:'Name bearbeiten',enter_name:'Namen eingeben...',btn_cancel:'Abbrechen',btn_save:'Speichern',confirm:'Bestätigen',btn_delete:'Löschen',alert:'Hinweis',btn_ok:'OK',delete_confirm:'Möchten Sie diese Lauflicht-Gruppe wirklich löschen?',validation_error:'Validierungsfehler',min_2_outputs:'Bitte wählen Sie mindestens 2 Ausgänge',group_id_range:'Gruppen-ID muss zwischen 1-255 liegen',interval_min:'Intervall muss mindestens 50ms betragen',error:'Fehler',outputs_label:'Ausgänge:',interval_label:'Intervall:',no_groups:'Keine aktiven Gruppen'},"
+        "fr:{tab_status:'Statut',tab_settings:'Paramètres',uptime:'Temps de fonctionnement',build_date:'Date de compilation',ram:'RAM (80 Ko)',flash:'Flash programme (1 Mo)',controls:'Contrôles',btn_all_on:'Tout ACTIVER',btn_all_off:'Tout DÉSACTIVER',master_brightness:'Luminosité principale:',chasing_groups:'Groupes de poursuite',group_id:'ID de groupe:',interval_ms:'Intervalle (ms):',select_outputs:'Sélectionner sorties (min. 2):',btn_create_group:'Créer un groupe',outputs:'Sorties',edit_name:'Modifier le nom',enter_name:'Entrer le nom...',btn_cancel:'Annuler',btn_save:'Enregistrer',confirm:'Confirmer',btn_delete:'Supprimer',alert:'Alerte',btn_ok:'OK',delete_confirm:'Voulez-vous vraiment supprimer ce groupe?',validation_error:'Erreur de validation',min_2_outputs:'Veuillez sélectionner au moins 2 sorties',group_id_range:'L\\'ID doit être entre 1-255',interval_min:'L\\'intervalle doit être d\\'au moins 50ms',error:'Erreur',outputs_label:'Sorties:',interval_label:'Intervalle:',no_groups:'Aucun groupe actif'},"
+        "it:{tab_status:'Stato',tab_settings:'Impostazioni',uptime:'Tempo di attività',build_date:'Data di compilazione',ram:'RAM (80 KB)',flash:'Flash programma (1 MB)',controls:'Controlli',btn_all_on:'Tutto ACCESO',btn_all_off:'Tutto SPENTO',master_brightness:'Luminosità principale:',chasing_groups:'Gruppi di inseguimento',group_id:'ID gruppo:',interval_ms:'Intervallo (ms):',select_outputs:'Seleziona uscite (min. 2):',btn_create_group:'Crea gruppo',outputs:'Uscite',edit_name:'Modifica nome',enter_name:'Inserisci nome...',btn_cancel:'Annulla',btn_save:'Salva',confirm:'Conferma',btn_delete:'Elimina',alert:'Avviso',btn_ok:'OK',delete_confirm:'Sei sicuro di voler eliminare questo gruppo?',validation_error:'Errore di validazione',min_2_outputs:'Seleziona almeno 2 uscite',group_id_range:'L\\'ID deve essere tra 1-255',interval_min:'L\\'intervallo deve essere almeno 50ms',error:'Errore',outputs_label:'Uscite:',interval_label:'Intervallo:',no_groups:'Nessun gruppo attivo'},"
+        "zh:{tab_status:'状态',tab_settings:'设置',uptime:'运行时间',build_date:'构建日期',ram:'内存 (80 KB)',flash:'程序闪存 (1 MB)',controls:'控制',btn_all_on:'全部开启',btn_all_off:'全部关闭',master_brightness:'主亮度:',chasing_groups:'追逐灯光组',group_id:'组ID:',interval_ms:'间隔 (毫秒):',select_outputs:'选择输出 (最少2个):',btn_create_group:'创建组',outputs:'输出',edit_name:'编辑名称',enter_name:'输入名称...',btn_cancel:'取消',btn_save:'保存',confirm:'确认',btn_delete:'删除',alert:'提示',btn_ok:'确定',delete_confirm:'确定要删除此追逐灯光组吗？',validation_error:'验证错误',min_2_outputs:'请至少选择2个输出',group_id_range:'组ID必须在1-255之间',interval_min:'间隔必须至少为50毫秒',error:'错误',outputs_label:'输出:',interval_label:'间隔:',no_groups:'没有活动组'},"
+        "hi:{tab_status:'स्थिति',tab_settings:'सेटिंग्स',uptime:'अपटाइम',build_date:'बिल्ड तिथि',ram:'RAM (80 KB)',flash:'प्रोग्राम फ्लैश (1 MB)',controls:'नियंत्रण',btn_all_on:'सभी चालू',btn_all_off:'सभी बंद',master_brightness:'मुख्य चमक:',chasing_groups:'चेज़िंग लाइट समूह',group_id:'समूह ID:',interval_ms:'अंतराल (ms):',select_outputs:'आउटपुट चुनें (न्यूनतम 2):',btn_create_group:'समूह बनाएं',outputs:'आउटपुट',edit_name:'नाम संपादित करें',enter_name:'नाम दर्ज करें...',btn_cancel:'रद्द करें',btn_save:'सहेजें',confirm:'पुष्टि करें',btn_delete:'हटाएं',alert:'चेतावनी',btn_ok:'ठीक है',delete_confirm:'क्या आप वाकई इस समूह को हटाना चाहते हैं?',validation_error:'सत्यापन त्रुटि',min_2_outputs:'कृपया कम से कम 2 आउटपुट चुनें',group_id_range:'समूह ID 1-255 के बीच होनी चाहिए',interval_min:'अंतराल कम से कम 50ms होना चाहिए',error:'त्रुटि',outputs_label:'आउटपुट:',interval_label:'अंतराल:',no_groups:'कोई सक्रिय समूह नहीं'}};"
+        "let currentLang='en';"
+        "function changeLang(lang){currentLang=lang;localStorage.setItem('lang',lang);document.querySelectorAll('[data-i18n]').forEach(el=>{const key=el.getAttribute('data-i18n');if(i18n[lang]&&i18n[lang][key])el.textContent=i18n[lang][key];});document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>{const key=el.getAttribute('data-i18n-placeholder');if(i18n[lang]&&i18n[lang][key])el.placeholder=i18n[lang][key];});}"
+        "function showTab(n){localStorage.setItem('activeTab',n);document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',i===n));"
         "document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',i===n));}"
         "let wsData=null;let bulkState=null;async function load(){let d;if(wsData){d=wsData;wsData=null;}else{try{const r=await fetch('/api/status');d=await r.json();}catch(err){console.error('[LOAD] Error:',err);return;}}if(!d)return;try{const activeEl=document.activeElement;const isFocused=activeEl&&activeEl.tagName==='INPUT'&&activeEl.type==='text'&&activeEl.closest('.interval');"
         "const focusedPin=isFocused?activeEl.closest('.output')?.querySelector('.output-name')?.getAttribute('onclick')?.match(/\\d+/)?.[0]:null;"
@@ -1268,7 +1291,7 @@ void initializeWebServer() {
         "const usedRam=80-(d.freeHeap/1024);const ramPct=Math.round((usedRam/80)*100);"
         "document.getElementById('ramFill').style.width=ramPct+'%';"
         "document.getElementById('ramText').textContent=usedRam.toFixed(1)+'KB / 80KB ('+ramPct+'%)';"
-        "const s=Math.floor(d.uptime/1000);document.getElementById('uptime').textContent=s+'s';"
+        "const s=Math.floor(d.uptime/1000);let uptime;if(s<60)uptime=s+'s';else if(s<3600){const m=Math.floor(s/60);const rs=s%60;uptime=m+'m '+(rs>0?rs+'s':'');}else if(s<86400){const h=Math.floor(s/3600);const m=Math.floor((s%3600)/60);uptime=h+'h '+(m>0?m+'m':'');}else{const d=Math.floor(s/86400);const h=Math.floor((s%86400)/3600);uptime=d+'d '+(h>0?h+'h':'');}document.getElementById('uptime').textContent=uptime;"
         "if(d.buildDate)document.getElementById('buildDate').textContent=d.buildDate;"
         "if(d.flashUsed&&d.flashPartition){const pct=Math.round((d.flashUsed/d.flashPartition)*100);"
         "document.getElementById('storageFill').style.width=pct+'%';"
@@ -1293,9 +1316,9 @@ void initializeWebServer() {
         "const div=document.createElement('div');div.className='chasing-group';"
         "const outNames=g.outputs.map(pin=>{const o=d.outputs.find(x=>x.pin===pin);return o?(o.name||'GPIO '+pin):'GPIO '+pin;}).join(', ');"
         "div.innerHTML=`<h3 onclick='editGName(${g.groupId},\"${g.name}\")'>${g.name}</h3>"
-        "<div class='group-info'><strong>Outputs:</strong> ${outNames}<br><strong>Interval:</strong> ${g.interval}ms</div>"
-        "<div class='group-controls'><button class='delete' onclick='deleteGroup(${g.groupId})'>Delete Group</button></div>`;"
-        "cg.appendChild(div);});}else{cg.innerHTML='<div class=\"no-groups\">No active groups</div>';}"
+        "<div class='group-info'><strong>${i18n[currentLang].outputs_label}:</strong> ${outNames}<br><strong>${i18n[currentLang].interval_label}:</strong> ${g.interval}ms</div>"
+        "<div class='group-controls'><button class='delete' onclick='deleteGroup(${g.groupId})'>${i18n[currentLang].btn_delete} Group</button></div>`;"
+        "cg.appendChild(div);});}else{cg.innerHTML='<div class=\"no-groups\">'+i18n[currentLang].no_groups+'</div>';}"
         "const o=document.getElementById('outputs');o.innerHTML='';"
         "d.outputs.forEach((out,i)=>{"
         "const div=document.createElement('div');"
@@ -1308,7 +1331,7 @@ void initializeWebServer() {
         "<div class='output-controls'><div class='brightness'><input type='range' min='0' max='100' value='${out.brightness}' "
         "oninput='this.nextElementSibling.textContent=this.value+\"%\"' onchange='setBright(${out.pin},this.value)'>"
         "<span>${out.brightness}%</span></div>"
-        "<div class='interval'><span>Interval:</span><input type='text' value='${out.interval}' "
+        "<div class='interval'><span>${i18n[currentLang].interval_label}:</span><input type='text' value='${out.interval}' "
         "onchange='setInt(${out.pin},this.value)' ${out.chasingGroup>=0?'disabled':''}><span>ms</span></div></div>`;"
         "o.appendChild(div);});"
         "if(focusedPin){const inputs=document.querySelectorAll('.interval input[type=text]');"
@@ -1352,7 +1375,7 @@ void initializeWebServer() {
         "if(e.target.id==='alertModal'){closeAlert();}});"));
         
         server->sendContent(F("async function deleteGroup(gid){"
-        "openConfirm('Delete Group','Are you sure you want to delete this chasing group?',async()=>{"
+        "openConfirm(i18n[currentLang].confirm,i18n[currentLang].delete_confirm,async()=>{"
         "try{await fetch('/api/chasing/delete',{method:'POST',headers:{'Content-Type':'application/json'},"
         "body:JSON.stringify({groupId:gid})});load();}catch(e){console.error(e);}});}"));
         
@@ -1360,6 +1383,7 @@ void initializeWebServer() {
         "document.getElementById('modalTitle').textContent=title;"
         "const input=document.getElementById('modalInput');"
         "input.value=currentVal||'';"
+        "input.placeholder=i18n[currentLang].enter_name;"
         "modalCallback=callback;"
         "document.getElementById('nameModal').classList.add('show');"
         "setTimeout(()=>input.focus(),100);}"
@@ -1372,30 +1396,30 @@ void initializeWebServer() {
         "if(e.target.id==='nameModal'){closeModal();}});"));
         
         server->sendContent(F("async function editGName(gid,oldName){"
-        "openModal('Edit Group Name',oldName,async(name)=>{"
+        "openModal(i18n[currentLang].edit_name,oldName,async(name)=>{"
         "if(name===oldName)return;"
         "const finalName=name.trim()||'Group '+gid;"
         "try{await fetch('/api/chasing/name',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:JSON.stringify({groupId:gid,name:finalName})});load();}catch(e){showAlert('Error',e.toString());console.error(e);}});}"));
+        "body:JSON.stringify({groupId:gid,name:finalName})});load();}catch(e){showAlert(i18n[currentLang].error,e.toString());console.error(e);}});}"));
         
         server->sendContent(F("async function editOName(pin,oldName){"
-        "openModal('Edit Output Name',oldName||'GPIO '+pin,async(name)=>{"
+        "openModal(i18n[currentLang].edit_name,oldName||'GPIO '+pin,async(name)=>{"
         "const finalName=name.trim();"
         "if(finalName===(oldName||'GPIO '+pin))return;"
         "try{await fetch('/api/name',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:JSON.stringify({pin:pin,name:finalName})});load();}catch(e){showAlert('Error',e.toString());console.error(e);}});}"));
+        "body:JSON.stringify({pin:pin,name:finalName})});load();}catch(e){showAlert(i18n[currentLang].error,e.toString());console.error(e);}});}"));
         
         server->sendContent(F("async function createGroup(){try{"
         "const gid=parseInt(document.getElementById('newGroupId').value);"
         "const interval=parseInt(document.getElementById('newGroupInterval').value);"
         "const outputs=[];"
         "document.querySelectorAll('#outputSelector input[type=checkbox]:checked').forEach(cb=>outputs.push(parseInt(cb.value)));"
-        "if(outputs.length<2){showAlert('Validation Error','Please select at least 2 outputs');return;}"
-        "if(gid<1||gid>255){showAlert('Validation Error','Group ID must be 1-255');return;}"
-        "if(interval<50){showAlert('Validation Error','Interval must be at least 50ms');return;}"
+        "if(outputs.length<2){showAlert(i18n[currentLang].validation_error,i18n[currentLang].min_2_outputs);return;}"
+        "if(gid<1||gid>255){showAlert(i18n[currentLang].validation_error,i18n[currentLang].group_id_range);return;}"
+        "if(interval<50){showAlert(i18n[currentLang].validation_error,i18n[currentLang].interval_min);return;}"
         "await fetch('/api/chasing/create',{method:'POST',headers:{'Content-Type':'application/json'},"
         "body:JSON.stringify({groupId:gid,interval:interval,outputs:outputs})});"
-        "document.getElementById('newGroupId').value=parseInt(gid)+1;load();}catch(e){showAlert('Error',e.toString());console.error(e);}}"));;
+        "document.getElementById('newGroupId').value=parseInt(gid)+1;load();}catch(e){showAlert(i18n[currentLang].error,e.toString());console.error(e);}}"));;
         
         server->sendContent(F("let isProcessing=false;async function allOn(){const btn=document.getElementById('btnAllOn');if(isProcessing)return;isProcessing=true;"
         "bulkState='on';btn.classList.add('processing');btn.disabled=true;try{const r=await fetch('/api/status');const d=await r.json();"
@@ -1418,7 +1442,9 @@ void initializeWebServer() {
         "ws.onmessage=(e)=>{try{wsData=JSON.parse(e.data);if(!isProcessing){load();}}catch(err){console.error('[WS] Parse error:',err);}};"
         "ws.onerror=(e)=>{console.error('[WS] Error:',e);};"
         "ws.onclose=()=>{console.log('[WS] Disconnected, reconnecting...');setTimeout(connectWS,2000);}};"
-        "const savedTab=localStorage.getItem('activeTab');if(savedTab!==null){showTab(parseInt(savedTab));}load().then(()=>connectWS());</script>"
+        "const savedTab=localStorage.getItem('activeTab');if(savedTab!==null){showTab(parseInt(savedTab));}"
+        "const savedLang=localStorage.getItem('lang')||'en';changeLang(savedLang);document.getElementById('langSelect').value=savedLang;"
+        "load().then(()=>connectWS());</script>"
         "<footer style='text-align:center;padding:20px;margin-top:40px;border-top:1px solid #333;color:#666;font-size:0.9em;'>Made with ❤️ by innoMO</footer>"
         "</body></html>"));
         server->sendContent("");  // End chunked transfer
