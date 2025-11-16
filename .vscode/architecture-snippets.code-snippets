@@ -248,29 +248,29 @@
     "description": "Prompt to generate C++ unit tests for ESP8266 logic."
   },
 
-  "Copilot: Document ESP8266 /api endpoint": {
-    "prefix": "cp-esp-docs",
-    "body": [
-      "You are an assistant that writes concise API documentation in Markdown.",
-      "",
-      "Task:",
-      "- Based on the following ESP8266 HTTP handler code, document the API endpoint.",
-      "- Include:",
-      "  - HTTP method and path (e.g. POST /api/control).",
-      "  - Request JSON format with field descriptions, types and constraints.",
-      "  - Possible HTTP status codes and when they occur.",
-      "  - Response JSON format for both success and error cases.",
-      "  - Any side effects on device state (e.g., outputs, EEPROM, WiFi settings).",
-      "- Format the result as Markdown suitable for a README or arc42 section.",
-      "",
-      "CODE:",
-      "",
-      "```cpp",
-      "$TM_SELECTED_TEXT",
-      "```"
-    ],
-    "description": "Prompt to generate Markdown documentation for an ESP8266 /api endpoint."
-  },
+  // "Copilot: Document ESP8266 /api endpoint": {
+  //   "prefix": "cp-esp-docs",
+  //   "body": [
+  //     "You are an assistant that writes concise API documentation in Markdown.",
+  //     "",
+  //     "Task:",
+  //     "- Based on the following ESP8266 HTTP handler code, document the API endpoint.",
+  //     "- Include:",
+  //     "  - HTTP method and path (e.g. POST /api/control).",
+  //     "  - Request JSON format with field descriptions, types and constraints.",
+  //     "  - Possible HTTP status codes and when they occur.",
+  //     "  - Response JSON format for both success and error cases.",
+  //     "  - Any side effects on device state (e.g., outputs, EEPROM, WiFi settings).",
+  //     "- Format the result as Markdown suitable for a README or arc42 section.",
+  //     "",
+  //     "CODE:",
+  //     "",
+  //     "```cpp",
+  //     "$TM_SELECTED_TEXT",
+  //     "```"
+  //   ],
+  //   "description": "Prompt to generate Markdown documentation for an ESP8266 /api endpoint."
+  // },
 
   "Copilot: Generate or update README.md for GitHub": {
   "prefix": "cp-readme",
